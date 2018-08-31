@@ -8,6 +8,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "tetronimo.h"
+#include "tetris.h"
 
 #define _ESC_ \x1b
 #define _CSI_ \x1b\x9b
@@ -17,16 +18,7 @@
 #define _CUB_ D
 
 
-// size of borders
-// borders extend the game board to allow for edge detection and
-// to allow the new piece to move in from offscreen
-#define LEFT_MARGIN 1
-#define RIGHT_MARGIN 1
-#define TOP_MARGIN 5
-#define BOTTOM_MARGIN 1
 
-#define N_COLS 10
-#define N_ROWS 25
 
 int board[N_COLS + LEFT_MARGIN + RIGHT_MARGIN ][ N_ROWS + TOP_MARGIN + BOTTOM_MARGIN];
 
@@ -41,8 +33,11 @@ int board[N_COLS + LEFT_MARGIN + RIGHT_MARGIN ][ N_ROWS + TOP_MARGIN + BOTTOM_MA
 #define ANSI_CLEAR_SCREEN "\x1b[2J"
 #define ANSI_SET_TITLE "\x1B[\x9D 0 ;"
 
-#define BORDER_COLOR "\x1b[37m"
+#define BORDER_COLOR ANSI_White
 
+#define BACKGROUND_COLOR ANSI_Black
+
+// sentinel values to detect edges of gameplay
 #define EDGE_RHS (2<<0)
 #define EDGE_LHS (2<<1)
 #define EDGE_BTM (2<<2)
@@ -50,20 +45,17 @@ int board[N_COLS + LEFT_MARGIN + RIGHT_MARGIN ][ N_ROWS + TOP_MARGIN + BOTTOM_MA
 
 
 
-typedef enum  { VK_NONE, VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT, VK_QUIT } valid_key_t;
-
-int g_score;
-
-
+typedef enum  { TD_DOWN, TD_LEFT, TD_RIGHT, TD_CLOCKWISE, TD_COUNTERCLOCKWISE } Tet_Direction;
 
 
 int  getkey(void);
-void handle_key_press(void);
-void render(int cells[N_COLS][N_ROWS], int width, int height);
+void handle_key_press(tet* t, int c);
+void render_game(void);
 void restore_cursor(void);
-void draw_box(u8 x, u8 y);
+void draw_box(u8 x, u8 y, u8 color);
 void debug_cell_print(void);
 void tet_to_string(tet t);
+u8 move_tet( tet* t, Tet_Direction d);
 
 /*
  
@@ -111,6 +103,8 @@ void restore_cursor(void)
 	void initialize_board(void)
 	sets sentinel values in the left, right and bottom edges of the board
 	to allow edge detection
+
+	board[] also tracks occupied cells; that is, the current tet and all uncleared cells
 */
 void initilize_board(void) //N_COLS + LEFT_MARGIN + RIGHT_MARGIN ][ N_ROWS + TOP_MARGIN + BOTTOM_MARGIN]
 {
@@ -132,10 +126,12 @@ void initilize_board(void) //N_COLS + LEFT_MARGIN + RIGHT_MARGIN ][ N_ROWS + TOP
 
 	origin is at top left, ones based
 */
-void draw_box(u8 x, u8 y)
+void draw_box(u8 x, u8 y, u8 color)
 {
-	u8 row = TOP_MARGIN + (1 * x);
-	u8 col = LEFT_MARGIN + (2 * y);
+	u8 row = TOP_MARGIN + (1 * y);
+	u8 col = LEFT_MARGIN + (2 * x);
+
+	printf("\x1b[%dm", color);
 
 	printf("\x1b[%d;%dH", row, col); // H =  abs pos row;column
 
@@ -145,22 +141,46 @@ void draw_box(u8 x, u8 y)
 }
 
 /*
-	draw_current_tet(tet t)
+	draw_tet(tet t)
 
-	render the piece in play
+	render the piece in play and update the board
 */
 
-void draw_current_tet(tet t)
+void draw_tet(tet t)
 {
 	// draw box at tet's origin
 	u8 xx = t.x_origin;
 	u8 yy = t.y_origin;
 
-	draw_box( xx, yy);
+	draw_box( xx, yy, t.color );
+	board[xx][yy] = t.color;
 
 	for(int i = 0; i < 3; i++)
 	{
-		draw_box( xx + t.offsets[i].xo, yy + t.offsets[i].yo);
+		draw_box( xx + t.offsets[i].xo, yy + t.offsets[i].yo, t.color);
+		board[xx + t.offsets[i].xo][yy + t.offsets[i].yo] = t.color;
+	}
+}
+
+/*
+	erase_tet(tet t)
+
+	delete the piece in play and update the board
+*/
+
+void erase_tet(tet t)
+{
+	// draw box at tet's origin
+	u8 xx = t.x_origin;
+	u8 yy = t.y_origin;
+
+	draw_box( xx, yy, BACKGROUND_COLOR);
+	board[xx][yy] = 0;
+
+	for(int i = 0; i < 3; i++)
+	{
+		draw_box( xx + t.offsets[i].xo, yy + t.offsets[i].yo, BACKGROUND_COLOR);
+		board[xx + t.offsets[i].xo][yy + t.offsets[i].yo] = 0;
 	}
 }
 
@@ -172,15 +192,16 @@ DIsplay the game board
 
 ************************************************/
 
-void render(int cells[N_COLS][N_ROWS], int width, int height)
+void render_game()
 {
 	restore_cursor();
 
 	// print top art
 
 	//top row
-	printf( BORDER_COLOR "\u2554");
-	for(int col = 0; col < N_COLS; col++){ printf("\u2550\u2550"); }
+	printf("\x1b[%dm", BORDER_COLOR );
+	printf("\u2554");
+	for( int col = 0; col < N_COLS; col++){ printf("\u2550\u2550"); }
 	printf("\u2557\n");
 
 	//print game field
@@ -199,132 +220,62 @@ void render(int cells[N_COLS][N_ROWS], int width, int height)
 	for(int col = 0; col < N_COLS; col++){ printf("\u2550\u2550"); }
 	printf("\u255D\n");
 
-	// int row,col,c;
-	
-	// printf( BORDER_COLOR );
-	// printf("\nScore %d\n", g_score);
-	
-	// //top row
-	// printf( BORDER_COLOR "\u2554\u2550");
-	// for(col = 0; col < width; col++){ printf("\u2550\u2550\u2550\u2550\u2550"); }
-	// printf("\u2550\u2557\n");
-	
-	// for(row = 0; row < height; row++){
-	// 	//left wall
-	// 	printf( "\u2551 ");
-		
-	// 	for(col = 0; col < width; col++){
-			
-	// 		// cache ccell value & validate
-	// 		c = cells[col][row];
-	// 		if(c < 0){ c = 0; }
-	// 		if(c > MAX_SYMBOL){ c = MAX_SYMBOL; }
-			
-	// 		printf( "%s", symbols[c][SYM_COLOR] );
-	// 		printf("%s", c ? "\u250C\u2500\u2500\u2500\u2510" : "     ");
-			
-	// 	}
-				
-	// 	//right wall / left wall
-	// 	printf(BORDER_COLOR " \u2551\n\u2551 ");
-		
-	// 	for(col = 0; col < width; col++){
-			
-	// 		// cache ccell value & validate
-	// 		c = cells[col][row];
-	// 		if(c < 0){ c = 0; }
-	// 		if(c > MAX_SYMBOL){ c = MAX_SYMBOL; }
-			
-	// 		char* n = c ? "\u2502" : " ";
-	// 		printf( "%s", symbols[c][SYM_COLOR]);
-	// 		printf(	"%s%s%s", n, c ? symbols[c][SYM_LEGEND] : "   ", n);
-			
-	// 	}
-				
-	// 	//right wall / left wall
-	// 	printf(BORDER_COLOR " \u2551\n\u2551 ");
-		
-	// 	for(col = 0; col < width; col++){
-			
-	// 		// cache cell value & validate
-	// 		c = cells[col][row];
-	// 		if(c < 0){ c = 0; }
-	// 		if(c > MAX_SYMBOL){ c = MAX_SYMBOL; }
-			
-	// 		printf( "%s", symbols[c][SYM_COLOR] );
-	// 		printf("%s", c ? "\u2514\u2500\u2500\u2500\u2518" : "     ");
-			
-	// 	}
-		
-	// 	//right wall : end of row
-	// 	printf(BORDER_COLOR " \u2551\n");
-	// }
-	// //bottom row
-	// printf("\u255A\u2550");
-	// for(col = 0; col < width; col++){ printf("\u2550\u2550\u2550\u2550\u2550"); }
-	// printf("\u2550\u255D");
-	
-	// restore_cursor();
 }
 
-void handle_key_press(void){
+void handle_key_press( tet* t, int key )
+{
+	switch(key){
 
-	int key, n_cells_moved = 0;
-
-	//
-	while( (n_cells_moved == 0) ){
-
-		key = getkey();
-		//n_cells_moved = 0;
-
-		switch(key){
-
-			case 0x1B:
-			 getkey();
-			 getkey();
-			 break;
-
-			case 'w':
-			case 'W':
-
-			//n_cells_moved = move_up( board );
+		case 0x1B: // escape is followed by two more chars
+			getkey();
+			getkey();
 			break;
 
-			case 'a':
-			case 'A':
-			//n_cells_moved = move_left( board );
-	
-			break;
+		case 'w':
+		case 'W':
 
-			case 's':
-			case 'S':
+		move_tet( t , TD_COUNTERCLOCKWISE );
+		break;
 
-			//n_cells_moved = move_down( board );
-			break;
+		case ' ':
 
-			case 'd':
-			case 'D':
-			//n_cells_moved = move_right( board );
+		move_tet( t , TD_CLOCKWISE );
+		break;
 
-
-			break;
-
-			case 'Q':
-			case 'q':
-			
-			exit(0);
-			break;
-
-			default:
+		case 'a':
+		case 'A':
 		
-			n_cells_moved = 0;
-			printf("Ignoring -%c-\n", key);
-			break;
+		move_tet( t , TD_LEFT );
 
-		}//end switch
-		// printf("KEY:%d, moves:%d\n",key, n_cells_moved);
-	}//end while
-	// printf("KEY exit:%d\n", n_cells_moved);
+		break;
+
+		case 's':
+		case 'S':
+
+		move_tet( t , TD_DOWN);
+
+		break;
+
+		case 'd':
+		case 'D':
+
+		move_tet( t , TD_RIGHT );
+
+		break;
+
+		case 'Q':
+		case 'q':
+		
+		exit(0);
+		break;
+
+		default:
+		printf("Ignoring -%c-\n", key);
+		break;
+
+	}//end switch
+	// printf("KEY:%d, moves:%d\n",key, n_cells_moved);
+
 }
 
 void _delay(int xsec)
@@ -339,67 +290,191 @@ void _delay(int xsec)
 
 }
 
+void player_moves(tet* t, int duration_ticks)
+{
+	clock_t tick_begin = clock();
+	volatile clock_t tick_now = clock();
+
+	int c;
+
+	while( tick_now - tick_begin < duration_ticks)
+	{
+		c = getkey();
+		if( c != EOF)
+		{
+			handle_key_press( t, c);
+		}
+		tick_now = clock();
+	}
+
+}
+
+/*
+	collides( tet t )
+	returns the OR-ed values of cells occupied by tet t
+*/
+
+int collides( tet t )
+{
+	int ret = 0;
+
+	ret |= board[t.x_origin][t.y_origin];
+
+	for(int i = 0; i < 3; i++)
+	{
+		ret |= board[t.x_origin + t.offsets[i].xo][t.y_origin + t.offsets[i].yo];
+	}
+	return ret;
+}
+
+/*
+	move_tet( ... )
+	inout: tet* t
+	in: Tet_Direction
+
+	The new position of the tetronimo t is calculated. 
+	If that position is vacant, t is updated to the new position, and zero is returned.
+	Otherwise, the return value is the bitwise OR of the contents of any occupied cells.
+	Since all color values are greater than 29, this single value can signal a collision
+	with any combination of walls or other occupied cells
+
+*/
+
+u8 move_tet( tet* t, Tet_Direction d)
+{
+	u8 collisions = 0;
+	tet t_next;
+
+	printf("\x1b[%dm", ANSI_BrightGreen);
+	printf("\x1b[1;0H");
+	tet_to_string(*t);
+
+	switch(d)
+	{
+		case TD_DOWN:
+		t_next = translate_tet( TRANSLATE_DOWN, *t );
+		break;
+
+		case TD_LEFT:
+		t_next = translate_tet( TRANSLATE_LEFT, *t );
+		break;
+
+		case TD_RIGHT:
+		t_next = translate_tet( TRANSLATE_RIGHT, *t );
+		break;
+
+		case TD_CLOCKWISE:
+		t_next = rotate_tet( ROTATE_CW, *t );
+		break;
+
+		case TD_COUNTERCLOCKWISE:
+		t_next = rotate_tet( ROTATE_CCW, *t );
+		break;
+	}
+
+	//ensure we do not detect self-collision
+	erase_tet(*t);
+	collisions = collides(t_next);
+
+	if(collisions == 0)
+	{
+		//destination is empty
+		memcpy(t, &t_next, sizeof(tet));
+		printf("\x1b[%dm", ANSI_BrightGreen);
+		printf("\x1b[3;0HMoved:");tet_to_string(*t);
+	}else
+	{
+		printf("\x1b[%dm", ANSI_BrightGreen);
+		printf("\x1b[3;0HCollided: %02x\n", collisions);
+	}		
+	// restore tet or draw new
+	draw_tet(*t);
+	
+	return collisions;
+}
+
+/*
+
+	score_move()
+	Test for any completed rows,
+	Animate and render removal of any such rows
+	return score for clearing row
+
+*/
+
+u32 score_move(void)
+{
+	//check rows from bottom up until an empty row is found;
+
+	// if board[][] > ANSI_Black
+	return 0;
+}
+
 
 int main(int argc, char** argv)
 {	
-	volatile int vol;
-	//time_t time = time();
-	clock_t start = clock();
-	//RNG go
+	u32 tick_length = 200;
+
+	u32 score = 0;
+	u32 points;
+
+	u8 collisions;
+
 	srand( (unsigned)time(NULL));
-
-	// printf( ANSI_RESET);
-	// printf( ANSI_CLEAR_SCREEN);
-
-	printf("CPS: %ld \n", CLOCKS_PER_SEC);
-
-	
-//	printf("Start time%ld\n", time);
-	printf("Start clock %ld\n", start);
 
 	initilize_board();
 
-	// for(int i = 0; i < 10; i++){
-	// 	printf("n");
-	// 	fflush(stdout);
-	// 	_delay(200000);
-	// }
+	tet t = new_tet(); // initally off screen & will 'drop' into visibility
 
-	// tet t; // tet in play
-	// t.x_origin = 4;
-	// t.y_origin = 8;
+	//render_game();	
+	printf("\x1b[%dm", ANSI_BrightGreen);
 
-	// int n = rand() % 7;
-	// t.offsets = tet_def[n];
-	tet t = new_tet();
-	draw_current_tet(t);
+	int n = 0;
+	char spin[] = { '\\','|','/','-'};
 
+	tet t2;
+	for(int k = 0; k<10; k++){
 
+		printf("Orig:");
+		t = new_tet();
+		tet_to_string(t);
 
+		t2 = rotate_tet(ROTATE_CW, t);
+		printf("Rotd:");
+		tet_to_string(t2);
+	}
 
+	// game loop
+	for(;;)
+	{
+		printf("\x1b[%d;%dH%c", 10, 30, spin[n]); 
+		n = (n+1)%4;
 
-	
+		player_moves( &t, tick_length);
 
-	//play game
-///	for(;;)
-//	{
-		//render();
+		// game moves: drop the tet
+		collisions = move_tet( &t , TD_DOWN );
 
-		//delay(period);
-		usleep(200);
+		player_moves( &t, tick_length / 10); //last chance
 
-		//drop();
+		if( collisions ){
+			
+			points = score_move();
+			score += points;
 
-		// slight_delay();
+			if(points)
+			{
+				//reduce tick_length, perhaps asymptotically
+			}
+			// we're ready for a new tetronimo
+			t = new_tet();
+		}
+		printf("\x1b[%dm", ANSI_BrightRed);
+		printf("NEVER");	}
 
-//	}
-start = clock();
-//time = time();
-
-//	printf("End time%ld\n", time);
-	printf("End clock %ld\n", start);
-
-
+	// tidy up
+	printf(ANSI_RESET);
+	printf(ANSI_CLEAR_SCREEN);  
 
 	return 0;	
 }

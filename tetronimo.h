@@ -35,7 +35,7 @@ typedef struct tet_type
 
 // there are seven tetromimos used 
 enum { 
-	T_BOX, T_POLE, T_JUNCTION, T_Z_LEVO, T_Z_DEXTRO, T_L_LEVO, T_L_DEXTRO
+	T_BOX, T_Z_DEXTRO, T_Z_LEVO, T_POLE, T_JUNCTION, T_L_DEXTRO, T_L_LEVO
 	};
 
 // the offsets describing each of the above

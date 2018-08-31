@@ -19,8 +19,8 @@ CFLAGS=-g -Wall -D__USE_FIXED_PROTOTYPES__
 #
 
 tetris: tetris.c
-	$(CC) $(CFLAGS) -o tetris tetris.c tetronimo.c
+	$(CC) $(CFLAGS) -o tetris.exe tetris.c tetronimo.c
 
 clean:
-	rm -f tetris
+	rm -f tetris.exe
     
