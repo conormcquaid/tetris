@@ -115,7 +115,7 @@ void initilize_board(void) //N_COLS + LEFT_MARGIN + RIGHT_MARGIN ][ N_ROWS + TOP
 	}
 		for(int i = 0; i < N_COLS + LEFT_MARGIN + RIGHT_MARGIN; i++)
 	{
-		board[i][N_ROWS + TOP_MARGIN + BOTTOM_MARGIN] = EDGE_BTM;
+		board[i][N_ROWS + TOP_MARGIN + BOTTOM_MARGIN - 1] = EDGE_BTM;
 	}
 }
 /*
@@ -463,7 +463,7 @@ u32 score_move(void)
 
 int main(int argc, char** argv)
 {	
-	u32 tick_length = 20;
+	u32 tick_length = 20000;
 
 	u32 score = 0;
 	u32 points;
