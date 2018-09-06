@@ -50,8 +50,8 @@ void tet_to_string(tet t);
 
 tet new_tet(void);
 
-tet rotate_tet(RotateDir dir, tet t);
+void rotate_tet(RotateDir dir, tet* t);
 
-tet translate_tet(TranslateDir dir, tet t);
+void translate_tet(TranslateDir dir, tet* t);
 
 #endif /* __TETRONIMO_H__*/

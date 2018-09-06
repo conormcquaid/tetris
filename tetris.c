@@ -128,8 +128,14 @@ void initilize_board(void) //N_COLS + LEFT_MARGIN + RIGHT_MARGIN ][ N_ROWS + TOP
 */
 void draw_box(u8 x, u8 y, u8 color)
 {
-	u8 row = TOP_MARGIN + (1 * y);
+	u8 row = y;
 	u8 col = LEFT_MARGIN + (2 * x);
+
+	// upper portion of board where tets spawn is not visible
+	if( y < TOP_MARGIN + 1)
+	{
+		return;
+	}
 
 	printf("\x1b[%dm", color);
 
@@ -198,10 +204,11 @@ void render_game()
 
 	// print top art
 
+	printf("\x1b[%d;%dH", TOP_MARGIN, 0); // H =  abs pos row;column
 	//top row
 	printf("\x1b[%dm", BORDER_COLOR );
 	printf("\u2554");
-	for( int col = 0; col < N_COLS; col++){ printf("\u2550\u2550"); }
+	for( int col = 0; col < N_COLS + LEFT_MARGIN; col++){ printf("\u2550\u2550"); }
 	printf("\u2557\n");
 
 	//print game field
@@ -209,7 +216,7 @@ void render_game()
 	{
 		//left wall
 		printf( "\u2551" );
-		for(int col = 0; col < N_COLS; col++)
+		for(int col = 0; col < N_COLS + LEFT_MARGIN; col++)
 		{
 			printf("  ");// each tet square 2 chars wide
 		}
@@ -217,7 +224,7 @@ void render_game()
 		printf( "\u2551\n" ); 		
 	}
 	printf("\u255A");
-	for(int col = 0; col < N_COLS; col++){ printf("\u2550\u2550"); }
+	for(int col = 0; col < N_COLS + LEFT_MARGIN; col++){ printf("\u2550\u2550"); }
 	printf("\u255D\n");
 
 }
@@ -292,21 +299,29 @@ void _delay(int xsec)
 
 void player_moves(tet* t, int duration_ticks)
 {
-	clock_t tick_begin = clock();
-	volatile clock_t tick_now = clock();
+	struct timespec start_ts;
+	struct timespec end_ts;
+
+	u64 diff = 0;
+	
+	clock_gettime(CLOCK_REALTIME, &start_ts);
 
 	int c;
 
-	while( tick_now - tick_begin < duration_ticks)
+	while( diff < duration_ticks)
 	{
+		//printf("\x1b[%d;%dH|", 10, 50);fflush(stdout);
 		c = getkey();
+		//printf("\x1b[%d;%dH-", 10, 50);fflush(stdout);
 		if( c != EOF)
 		{
-			handle_key_press( t, c);
+			handle_key_press( t, c );
+			
 		}
-		tick_now = clock();
+		clock_gettime(CLOCK_REALTIME, &end_ts);
+		
+		diff = 1000000000L * (end_ts.tv_sec - start_ts.tv_sec) + (end_ts.tv_nsec - start_ts.tv_nsec);
 	}
-
 }
 
 /*
@@ -345,30 +360,32 @@ u8 move_tet( tet* t, Tet_Direction d)
 	u8 collisions = 0;
 	tet t_next;
 
+    memcpy(&t_next, t, sizeof(tet));
+
 	printf("\x1b[%dm", ANSI_BrightGreen);
-	printf("\x1b[1;0H");
+	printf("\x1b[1;30H");
 	tet_to_string(*t);
 
 	switch(d)
 	{
 		case TD_DOWN:
-		t_next = translate_tet( TRANSLATE_DOWN, *t );
+		translate_tet( TRANSLATE_DOWN, &t_next );
 		break;
 
 		case TD_LEFT:
-		t_next = translate_tet( TRANSLATE_LEFT, *t );
+		translate_tet( TRANSLATE_LEFT, &t_next );
 		break;
 
 		case TD_RIGHT:
-		t_next = translate_tet( TRANSLATE_RIGHT, *t );
+		translate_tet( TRANSLATE_RIGHT, &t_next );
 		break;
 
 		case TD_CLOCKWISE:
-		t_next = rotate_tet( ROTATE_CW, *t );
+		 rotate_tet( ROTATE_CW, &t_next );
 		break;
 
 		case TD_COUNTERCLOCKWISE:
-		t_next = rotate_tet( ROTATE_CCW, *t );
+		rotate_tet( ROTATE_CCW, &t_next );
 		break;
 	}
 
@@ -381,11 +398,11 @@ u8 move_tet( tet* t, Tet_Direction d)
 		//destination is empty
 		memcpy(t, &t_next, sizeof(tet));
 		printf("\x1b[%dm", ANSI_BrightGreen);
-		printf("\x1b[3;0HMoved:");tet_to_string(*t);
+		printf("\x1b[3;30HMoved:");tet_to_string(*t);
 	}else
 	{
 		printf("\x1b[%dm", ANSI_BrightGreen);
-		printf("\x1b[3;0HCollided: %02x\n", collisions);
+		printf("\x1b[3;30HCollided: %02x\n", collisions);
 	}		
 	// restore tet or draw new
 	draw_tet(*t);
@@ -404,16 +421,49 @@ u8 move_tet( tet* t, Tet_Direction d)
 
 u32 score_move(void)
 {
+	// we can have at most 4 completed rows
+	u8 completed[4];
+	u8 nCompleted = 0;
+	u32 score = 0;
 	//check rows from bottom up until an empty row is found;
+	for(u8 row = N_ROWS; row > TOP_MARGIN+1; row--)
+	{
+		u8 nFilled = 0;
+
+		for(u8 col = LEFT_MARGIN; col < LEFT_MARGIN + N_COLS; col++)
+		{
+			if(board[col][row] != 0)
+			{
+				nFilled++;
+			}
+		}
+		if(nFilled == N_COLS)
+		{
+			completed[nCompleted++] = row;
+		}
+	}
+
+	if( nCompleted == 0 )
+	{
+		return 0;
+	}
+	// have a list of completed rows
+
+	// flash them: easy as toggling bright/normal cols?
+
+	// drop rows above
+
+	// we can assume that completed rows are contiguous, fwiw
 
 	// if board[][] > ANSI_Black
-	return 0;
+	
+	return nCompleted * 10;
 }
 
 
 int main(int argc, char** argv)
 {	
-	u32 tick_length = 200;
+	u32 tick_length = 20;
 
 	u32 score = 0;
 	u32 points;
@@ -426,36 +476,42 @@ int main(int argc, char** argv)
 
 	tet t = new_tet(); // initally off screen & will 'drop' into visibility
 
-	//render_game();	
-	printf("\x1b[%dm", ANSI_BrightGreen);
+	printf(ANSI_CLEAR_SCREEN);
+	render_game();
+
+	printf("\x1b[%dm", ANSI_BrightGreen);//test
 
 	int n = 0;
 	char spin[] = { '\\','|','/','-'};
 
-	tet t2;
-	for(int k = 0; k<10; k++){
+	// tet t2;
+	// for(int k = 0; k<10; k++){
 
-		printf("Orig:");
-		t = new_tet();
-		tet_to_string(t);
+	// 	printf("Orig:");
+	// 	t = new_tet();
+	// 	tet_to_string(t);
 
-		t2 = rotate_tet(ROTATE_CW, t);
-		printf("Rotd:");
-		tet_to_string(t2);
-	}
+	// 	memcpy(&t2, &t, sizeof(tet));
+	// 	rotate_tet(ROTATE_CW, &t2);
+	// 	printf("Rotd:");
+	// 	tet_to_string(t2);
+	// }
 
 	// game loop
 	for(;;)
 	{
-		printf("\x1b[%d;%dH%c", 10, 30, spin[n]); 
-		n = (n+1)%4;
-
 		player_moves( &t, tick_length);
+		
+		printf("\x1b[%d;%dH%c", 10, 50, spin[n]);fflush(stdout);
+		n = (n+1) % 4;
 
 		// game moves: drop the tet
 		collisions = move_tet( &t , TD_DOWN );
 
-		player_moves( &t, tick_length / 10); //last chance
+		// player_moves( &t, tick_length / 10); //last chance
+
+		// printf("\x1b[%d;%dH%c", 10, 50, spin[n]);fflush(stdout);
+		// n = (n+1) % 4;
 
 		if( collisions ){
 			
@@ -469,9 +525,9 @@ int main(int argc, char** argv)
 			// we're ready for a new tetronimo
 			t = new_tet();
 		}
-		printf("\x1b[%dm", ANSI_BrightRed);
-		printf("NEVER");	}
-
+		// printf("\x1b[%dm", ANSI_BrightRed);
+		// printf("NEVER");	}
+	}
 	// tidy up
 	printf(ANSI_RESET);
 	printf(ANSI_CLEAR_SCREEN);  

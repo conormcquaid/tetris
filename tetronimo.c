@@ -55,49 +55,41 @@ void tet_to_string(tet t)
 	t.offsets[2].xo, t.offsets[2].yo);
 
 }
-tet rotate_tet(RotateDir dir, tet t)
+void rotate_tet(RotateDir dir, tet* t)
 {
-	tet t_new;
-	memcpy(&t_new, &t, sizeof(tet));
-
 	for(int i = 0; i < 3; i++)
 	{
-		u8 tmp_x = t.offsets[i].xo;
+		u8 tmp_x = t->offsets[i].xo;
 		if( dir == ROTATE_CCW)
 		{
-			t_new.offsets[i].xo = t.offsets[0].yo;
-			t_new.offsets[i].yo = -tmp_x;
+			t->offsets[i].xo = t->offsets[i].yo;
+			t->offsets[i].yo = -tmp_x;
 		}
 		else
 		{
-			t_new.offsets[i].xo = -t.offsets[0].yo;
-			t_new.offsets[i].yo = tmp_x;
+			t->offsets[i].xo = -t->offsets[i].yo;
+			t->offsets[i].yo = tmp_x;
 		}
 	}
-	return t_new;
 }
 
-tet translate_tet(TranslateDir dir, tet t)
-{
-	tet t_new;
-	memcpy(&t_new, &t, sizeof(tet));
-	
+void translate_tet(TranslateDir dir, tet* t)
+{	
 	switch(dir)
 	{
 		case TRANSLATE_DOWN:
-			t_new.y_origin += 1;
+			t->y_origin += 1;
 			break;
 
 		case TRANSLATE_RIGHT:
-			t_new.x_origin += 1;
+			t->x_origin += 1;
 			break;
 
 		case TRANSLATE_LEFT:
-			t_new.x_origin -= 1;
+			t->x_origin -= 1;
 			break;
 
 		default: /* no valid dir */
 			break;
 	}
-	return t_new;
 }

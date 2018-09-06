@@ -7,5 +7,6 @@
 #define u32 unsigned int
 #define i32 int
 
+#define u64 unsigned long int
 
 #endif /*__MY_TYPES_H__*/
